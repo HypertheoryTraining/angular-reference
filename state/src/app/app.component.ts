@@ -6,7 +6,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
   template: `
     <div class="flex m-8">
       <div class="flex-none width-1/3 p-4 m-2">
-        <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-4 p-2">
           <a
             routerLink=""
             class="link"
@@ -21,6 +21,15 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
             [routerLinkActive]="['uppercase']"
           >
             Ephemeral User
+          </a>
+        </div>
+        <div class="flex flex-col gap-4 p-2">
+          <a
+            routerLink="outbox"
+            class="link"
+            [routerLinkActive]="['uppercase']"
+          >
+            Outbox
           </a>
         </div>
       </div>

@@ -6,4 +6,9 @@ export const routes: Routes = [
     loadChildren: () =>
       import('../ephemeral-user/routes').then((m) => m.EPHEMERAL_USER_ROUTES),
   },
+  {
+    path: 'outbox',
+    loadChildren: () =>
+      import('../shared-state/routes').then((m) => m.SHARED_STATE_ROUTES),
+  },
 ];
