@@ -8,7 +8,7 @@ import {
   withState,
 } from '@ngrx/signals';
 import { Observable } from 'rxjs';
-import { withLoadingModes } from './loading-modes';
+import { setIsMutating, withLoadingModes } from './loading-modes';
 import { RxMethod } from '@ngrx/signals/rxjs-interop';
 type ApiOps<T> = {
   add: RxMethod<{ tempId: string; item: Omit<T, 'id'> }> | undefined;
@@ -90,9 +90,18 @@ export function withOutBox<T extends { id: string }>() {
           patchState(state, { updates: newUpdates });
         },
         _addOutboxAddition: (tempId: string, addition: Omit<T, 'id'>) => {
-          const tempAddition = { ...addition, id: tempId } as T;
-          const newAdditions = [...state.additions(), tempAddition];
-          patchState(state, { additions: newAdditions });
+          const newAddition = { ...addition, id: tempId } as T;
+          const newAdditions = [...state.additions(), newAddition];
+          const outBoxItem: PendingChange<T> = {
+            kind: 'add',
+            product: addition,
+            tempId,
+          };
+          const newPendingOutbox = [...state._pendingOutbox(), outBoxItem];
+          patchState(state, {
+            additions: newAdditions,
+            _pendingOutbox: newPendingOutbox,
+          });
         },
         _removeOutboxAddition: (tempId: string) => {
           const newAdditions = state.additions().filter((a) => {
@@ -141,21 +150,27 @@ export function withOutBox<T extends { id: string }>() {
               if (pendingChange) {
                 console.log({ pendingChange });
                 switch (pendingChange.kind) {
-                  case 'delete':
+                  case 'delete': {
                     if (store._apiMethods().delete) {
                       store._apiMethods().delete!(pendingChange.product);
-                      return;
                     }
                     return;
-                    //   case 'update':
-                    //     store._doublePrice(pendingChange.product);
-                    //     return;
-                    //   case 'add':
-                    //     store._addProduct({
-                    //       tempId: pendingChange.tempId,
-                    //       product: pendingChange.product,
-                    //     });
+                  }
+                  case 'add': {
+                    if (store._apiMethods().add) {
+                      store._apiMethods().add!({
+                        tempId: pendingChange.tempId,
+                        item: pendingChange.product,
+                      });
+                    }
                     return;
+                  }
+                  case 'update': {
+                    if (store._apiMethods().update) {
+                      store._apiMethods().update!(pendingChange.product);
+                      return;
+                    }
+                  }
                 }
               }
             }

@@ -7,7 +7,6 @@ import {
   withComputed,
   withHooks,
   withMethods,
-  withState,
 } from '@ngrx/signals';
 import {
   removeEntity,
@@ -51,7 +50,7 @@ export const ProductsStore = signalStore(
           mergeMap((args: { tempId: string; item: Omit<ApiProduct, 'id'> }) => {
             return service.addProduct(args.item).pipe(
               tapResponse(
-                (product) => {
+                (product: ApiProduct) => {
                   patchState(state, setEntity(product), setIsIdle());
                   state._removeOutboxAddition(args.tempId);
                 },
@@ -66,7 +65,7 @@ export const ProductsStore = signalStore(
           switchMap(() =>
             service.getProducts().pipe(
               tapResponse(
-                (products) => {
+                (products: ApiProduct[]) => {
                   patchState(state, setEntities(products), setIsIdle());
                 },
                 () => patchState(state, setError('Could not load')),
@@ -110,11 +109,14 @@ export const ProductsStore = signalStore(
           mergeMap((p: ApiProduct) =>
             service.updateProduct(p).pipe(
               tapResponse(
-                (product) => {
+                (product: ApiProduct) => {
                   patchState(state, setEntity(product), setIsIdle());
                   state._removeOutboxUpdate(product);
                 },
-                () => patchState(state, setError('Could not update')),
+                () => {
+                  patchState(state, setError('Could not update'));
+                  state._removeOutboxUpdate(p);
+                },
               ),
             ),
           ),
