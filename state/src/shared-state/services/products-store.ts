@@ -4,6 +4,7 @@ import {
   withComputed,
   withHooks,
   withMethods,
+  withState,
 } from '@ngrx/signals';
 import {
   addEntity,
@@ -26,14 +27,50 @@ import {
   setIsBackgroundFetching,
 } from './loading-modes';
 type ApiProduct = { id: string; name: string; price: number };
+type PendingChange =
+  | {
+      kind: 'add';
+      product: Omit<ApiProduct, 'id'>;
+      tempId: string;
+    }
+  | {
+      kind: 'delete';
+      product: ApiProduct;
+    }
+  | {
+      kind: 'update';
+      product: ApiProduct;
+    };
+
 export const ProductsStore = signalStore(
   withDevtools('ProductsStore'),
+  withState({
+    pendingChanges: [] as PendingChange[],
+  }),
   withEntities<ApiProduct>(),
   withLoadingModes(),
   withOutBox<ApiProduct>(),
   withMethods((state) => {
     const service = inject(ProductsApi);
     return {
+      addProduct: (product: Omit<ApiProduct, 'id'>) => {
+        const pendingChanges = state.pendingChanges();
+        const proposedChange: PendingChange = {
+          kind: 'add',
+          product: { ...product },
+          tempId: crypto.randomUUID(),
+        };
+        const newPendingChanges = [...pendingChanges, proposedChange];
+        state._addOutboxAddition(proposedChange.tempId, product);
+        patchState(state, { pendingChanges: newPendingChanges });
+      },
+      _addProduct: async (tempId: string, product: Omit<ApiProduct, 'id'>) => {
+        patchState(state, setIsMutating());
+        await service.addProduct(product).then((res) => {
+          patchState(state, addEntity(res), setIsIdle());
+          state._removeOutboxAddition(tempId);
+        });
+      },
       _loadProducts: async () => {
         await service
           .getProducts()
@@ -41,18 +78,19 @@ export const ProductsStore = signalStore(
             patchState(state, setEntities(products), setIsIdle()),
           );
       },
-      addProduct: async (product: Omit<ApiProduct, 'id'>) => {
-        const tempId = crypto.randomUUID();
-        state._addOutboxAddition(tempId, product);
-        patchState(state, setIsMutating());
-        await service.addProduct(product).then((res) => {
-          patchState(state, addEntity(res), setIsIdle());
-          state._removeOutboxAddition(tempId);
-        });
-      },
-      deleteProduct: async (p: ApiProduct) => {
-        patchState(state, setIsMutating());
+
+      deleteProduct: (p: ApiProduct) => {
+        const proposedChange: PendingChange = {
+          kind: 'delete',
+          product: p,
+        };
+        const newPendingChanges = [...state.pendingChanges(), proposedChange];
         state._addOutboxDeletion(p);
+        patchState(state, { pendingChanges: newPendingChanges });
+      },
+      _deleteProduct: async (p: ApiProduct) => {
+        patchState(state, setIsMutating());
+
         try {
           await service.deleteProduct(p.id);
 
@@ -65,10 +103,20 @@ export const ProductsStore = signalStore(
           state._removeOutboxDeletion(p);
         }
       },
-      doublePrice: async (p: ApiProduct) => {
+      doublePrice: (p: ApiProduct) => {
+        const updatedProduct = { ...p, price: p.price * 2 };
+        state._addOutboxUpdate(updatedProduct);
+        const proposedChange: PendingChange = {
+          kind: 'update',
+          product: updatedProduct,
+        };
+        const newPendingChanges = [...state.pendingChanges(), proposedChange];
+        patchState(state, { pendingChanges: newPendingChanges });
+      },
+      _doublePrice: async (p: ApiProduct) => {
         const updatedProduct = { ...p, price: p.price * 2 };
         patchState(state, setIsMutating());
-        state._addOutboxUpdate(updatedProduct);
+
         await service.updateProduct(updatedProduct);
         patchState(state, setEntity(updatedProduct), setIsIdle);
         state._removeOutboxUpdate(updatedProduct);
@@ -107,6 +155,36 @@ export const ProductsStore = signalStore(
         cleanup(() => {
           clearInterval(timer);
         });
+      });
+
+      effect(async () => {
+        const idle = store.requestStatus() === 'idle';
+        const any = store.pendingChanges().length > 0;
+
+        if (any) {
+          if (idle) {
+            const pendingChange = store.pendingChanges()?.pop();
+
+            if (pendingChange) {
+              console.log({ pendingChange });
+              switch (pendingChange.kind) {
+                case 'delete':
+                  await store._deleteProduct(pendingChange.product);
+                  return;
+                case 'update':
+                  await store._doublePrice(pendingChange.product);
+                  return;
+                case 'add':
+                  await store._addProduct(
+                    pendingChange.tempId,
+                    pendingChange.product,
+                  );
+                  return;
+              }
+              // You can call a method to add the product here
+            }
+          }
+        }
       });
     },
   }),
