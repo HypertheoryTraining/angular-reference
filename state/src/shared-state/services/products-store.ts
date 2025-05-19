@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { withDevtools } from '@angular-architects/ngrx-toolkit';
 import { computed, effect, inject } from '@angular/core';
 import { tapResponse } from '@ngrx/operators';
@@ -7,6 +8,7 @@ import {
   withComputed,
   withHooks,
   withMethods,
+  withState,
 } from '@ngrx/signals';
 import {
   removeEntity,
@@ -26,16 +28,32 @@ import {
 import { mapToNonPending, withOutBox } from './outbox';
 import { ProductsApi } from './product-api';
 type ApiProduct = { id: string; name: string; price: number };
-
+const SORT_KEYS = ['name', 'price'] as const;
+type SORT_KEY = (typeof SORT_KEYS)[number];
+const SORT_ORDERS = ['asc', 'desc'] as const;
+type SORT_ORDER = (typeof SORT_ORDERS)[number];
 export const ProductsStore = signalStore(
   withDevtools('ProductsStore'),
 
   withEntities<ApiProduct>(),
+  withState({
+    sortKey: 'price' as SORT_KEY,
+    sortOrder: 'asc' as SORT_ORDER,
+  }),
 
   withOutBox<ApiProduct>(),
   withMethods((state) => {
     const service = inject(ProductsApi);
     return {
+      setSortKey: (key: SORT_KEY) => {
+        if (state.sortOrder() === 'asc') {
+          patchState(state, { sortKey: key, sortOrder: 'desc' });
+        } else {
+          patchState(state, { sortKey: key, sortOrder: 'asc' });
+        }
+      },
+      setSortOrder: (order: SORT_ORDER) =>
+        patchState(state, { sortOrder: order }),
       addProduct: (product: Omit<ApiProduct, 'id'>) => {
         state._addOutboxAddition(crypto.randomUUID(), product);
       },
@@ -137,7 +155,26 @@ export const ProductsStore = signalStore(
         resultMap.set(product.id, { ...product, pending: true });
       });
 
-      return Array.from(resultMap.values());
+      const all = Array.from(resultMap.values());
+      if (state.sortKey() === 'name') {
+        return all.sort((a, b) => {
+          if (state.sortOrder() === 'asc') {
+            return a.name.localeCompare(b.name);
+          } else {
+            return b.name.localeCompare(a.name);
+          }
+        });
+      }
+      if (state.sortKey() === 'price') {
+        return all.sort((a, b) => {
+          if (state.sortOrder() === 'asc') {
+            return a.price - b.price;
+          } else {
+            return b.price - a.price;
+          }
+        });
+      }
+      return all;
     }),
   })),
   withHooks({

@@ -46,8 +46,35 @@ import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
         <table class="table table-zebra w-1/2">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Price</th>
+              <th>
+                <button (click)="store.setSortKey('name')" class="link">
+                  Name
+
+                  @if (store.sortKey() === 'name') {
+                    <span class="text-accent">
+                      @if (store.sortOrder() === 'asc') {
+                        ↑
+                      } @else {
+                        ↓
+                      }
+                    </span>
+                  }
+                </button>
+              </th>
+              <th>
+                <button (click)="store.setSortKey('price')" class="link">
+                  Price
+                  @if (store.sortKey() === 'price') {
+                    <span class="text-accent">
+                      @if (store.sortOrder() === 'asc') {
+                        ↑
+                      } @else {
+                        ↓
+                      }
+                    </span>
+                  }
+                </button>
+              </th>
               <th>Actions</th>
             </tr>
           </thead>
