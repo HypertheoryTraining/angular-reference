@@ -1,32 +1,89 @@
-import { computed } from '@angular/core';
+import { computed, effect } from '@angular/core';
 import {
   patchState,
   signalStoreFeature,
   withComputed,
+  withHooks,
   withMethods,
   withState,
 } from '@ngrx/signals';
+import { Observable } from 'rxjs';
+import { withLoadingModes } from './loading-modes';
+import { RxMethod } from '@ngrx/signals/rxjs-interop';
+type ApiOps<T> = {
+  add: RxMethod<{ tempId: string; item: Omit<T, 'id'> }> | undefined;
+  delete: RxMethod<T> | undefined;
+  update?: RxMethod<T> | undefined;
+};
 
+type PendingChange<T> =
+  | {
+      kind: 'add';
+      product: Omit<T, 'id'>;
+      tempId: string;
+    }
+  | {
+      kind: 'delete';
+      product: T;
+    }
+  | {
+      kind: 'update';
+      product: T;
+    };
 export function withOutBox<T extends { id: string }>() {
   return signalStoreFeature(
+    withLoadingModes(),
     withState({
       deletions: [] as T[],
       updates: [] as T[],
       additions: [] as T[],
+      _apiMethods: {
+        add: undefined,
+        delete: undefined,
+        update: undefined,
+      } as ApiOps<T>,
+      _pendingOutbox: [] as PendingChange<T>[],
     }),
     withMethods((state) => {
       return {
+        _addApiMethods: (api: ApiOps<T>) => {
+          patchState(state, { _apiMethods: api });
+        },
         _addOutboxDeletion: (el: T) => {
           const newDeletions = [...state.deletions(), el];
-          patchState(state, { deletions: newDeletions });
+          const outBoxItem: PendingChange<T> = {
+            kind: 'delete',
+            product: el,
+          };
+          const newPendingOutbox = [...state._pendingOutbox(), outBoxItem];
+          patchState(state, {
+            deletions: newDeletions,
+            _pendingOutbox: newPendingOutbox,
+          });
         },
         _removeOutboxDeletion: (el: T) => {
           const newDeletions = state.deletions().filter((d) => d.id !== el.id);
-          patchState(state, { deletions: newDeletions });
+          const outBoxItem: PendingChange<T> = {
+            kind: 'delete',
+            product: el,
+          };
+          const newPendingOutbox = [...state._pendingOutbox(), outBoxItem];
+          patchState(state, {
+            deletions: newDeletions,
+            _pendingOutbox: newPendingOutbox,
+          });
         },
         _addOutboxUpdate: (update: T) => {
           const newUpdates = [...state.updates(), update];
-          patchState(state, { updates: newUpdates });
+          const outBoxItem: PendingChange<T> = {
+            kind: 'update',
+            product: update,
+          };
+          const newPendingOutbox = [...state._pendingOutbox(), outBoxItem];
+          patchState(state, {
+            updates: newUpdates,
+            _pendingOutbox: newPendingOutbox,
+          });
         },
         _removeOutboxUpdate: (update: T) => {
           const newUpdates = state.updates().filter((u) => u.id !== update.id);
@@ -68,6 +125,43 @@ export function withOutBox<T extends { id: string }>() {
           return map;
         }),
       };
+    }),
+    withHooks({
+      onInit: (store) => {
+        effect(() => {
+          const idle = store.requestStatus() === 'idle';
+          const outbox = store._pendingOutbox();
+
+          if (idle) {
+            if (outbox.length > 0) {
+              const [pendingChange, ...rest] = store._pendingOutbox();
+              patchState(store, {
+                _pendingOutbox: rest,
+              });
+              if (pendingChange) {
+                console.log({ pendingChange });
+                switch (pendingChange.kind) {
+                  case 'delete':
+                    if (store._apiMethods().delete) {
+                      store._apiMethods().delete!(pendingChange.product);
+                      return;
+                    }
+                    return;
+                    //   case 'update':
+                    //     store._doublePrice(pendingChange.product);
+                    //     return;
+                    //   case 'add':
+                    //     store._addProduct({
+                    //       tempId: pendingChange.tempId,
+                    //       product: pendingChange.product,
+                    //     });
+                    return;
+                }
+              }
+            }
+          }
+        });
+      },
     }),
   );
 }

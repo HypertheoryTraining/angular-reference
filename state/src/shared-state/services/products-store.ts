@@ -23,69 +23,42 @@ import {
   setIsIdle,
   setIsLoading,
   setIsMutating,
-  withLoadingModes,
 } from './loading-modes';
 import { mapToNonPending, withOutBox } from './outbox';
 import { ProductsApi } from './product-api';
 type ApiProduct = { id: string; name: string; price: number };
-type PendingChange =
-  | {
-      kind: 'add';
-      product: Omit<ApiProduct, 'id'>;
-      tempId: string;
-    }
-  | {
-      kind: 'delete';
-      product: ApiProduct;
-    }
-  | {
-      kind: 'update';
-      product: ApiProduct;
-    };
 
 export const ProductsStore = signalStore(
   withDevtools('ProductsStore'),
-  withState({
-    pendingChanges: [] as PendingChange[],
-  }),
+
   withEntities<ApiProduct>(),
-  withLoadingModes(),
+
   withOutBox<ApiProduct>(),
   withMethods((state) => {
     const service = inject(ProductsApi);
     return {
       addProduct: (product: Omit<ApiProduct, 'id'>) => {
-        const pendingChanges = state.pendingChanges();
-        const proposedChange: PendingChange = {
-          kind: 'add',
-          product: { ...product },
-          tempId: crypto.randomUUID(),
-        };
-        const newPendingChanges = [...pendingChanges, proposedChange];
-        state._addOutboxAddition(proposedChange.tempId, product);
-        patchState(state, { pendingChanges: newPendingChanges });
+        state._addOutboxAddition(crypto.randomUUID(), product);
       },
       _addProduct: rxMethod<{
         tempId: string;
-        product: Omit<ApiProduct, 'id'>;
+        item: Omit<ApiProduct, 'id'>;
       }>(
         pipe(
           tap(() => {
             patchState(state, setIsMutating());
           }),
-          mergeMap(
-            (args: { tempId: string; product: Omit<ApiProduct, 'id'> }) => {
-              return service.addProduct(args.product).pipe(
-                tapResponse(
-                  (product) => {
-                    patchState(state, setEntity(product), setIsIdle());
-                    state._removeOutboxAddition(args.tempId);
-                  },
-                  () => patchState(state, setError('Could not add')),
-                ),
-              );
-            },
-          ),
+          mergeMap((args: { tempId: string; item: Omit<ApiProduct, 'id'> }) => {
+            return service.addProduct(args.item).pipe(
+              tapResponse(
+                (product) => {
+                  patchState(state, setEntity(product), setIsIdle());
+                  state._removeOutboxAddition(args.tempId);
+                },
+                () => patchState(state, setError('Could not add')),
+              ),
+            );
+          }),
         ),
       ),
       _loadProducts: rxMethod<void>(
@@ -104,19 +77,10 @@ export const ProductsStore = signalStore(
       ),
 
       deleteProduct: (p: ApiProduct) => {
-        const proposedChange: PendingChange = {
-          kind: 'delete',
-          product: p,
-        };
-        const newPendingChanges = [...state.pendingChanges(), proposedChange];
         state._addOutboxDeletion(p);
-        patchState(state, { pendingChanges: newPendingChanges });
       },
       _deleteProduct: rxMethod<ApiProduct>(
         pipe(
-          tap(() => {
-            patchState(state, setIsMutating());
-          }),
           mergeMap((p: ApiProduct) =>
             service.deleteProduct(p.id).pipe(
               tapResponse(
@@ -124,7 +88,10 @@ export const ProductsStore = signalStore(
                   patchState(state, removeEntity(p.id), setIsIdle());
                   state._removeOutboxDeletion(p);
                 },
-                () => patchState(state, setError('Could not delete')),
+                () => {
+                  patchState(state, setError('Could not delete'));
+                  state._removeOutboxDeletion(p);
+                },
               ),
             ),
           ),
@@ -132,14 +99,8 @@ export const ProductsStore = signalStore(
       ),
       doublePrice: (p: ApiProduct) => {
         const updatedProduct = { ...p, price: p.price * 2 };
+
         state._addOutboxUpdate(updatedProduct);
-        const proposedChange: PendingChange = {
-          kind: 'update',
-          product: updatedProduct,
-        };
-        const newPendingChanges = [...state.pendingChanges(), proposedChange];
-        state._addOutboxUpdate(updatedProduct);
-        patchState(state, { pendingChanges: newPendingChanges });
       },
       _doublePrice: rxMethod<ApiProduct>(
         pipe(
@@ -179,46 +140,25 @@ export const ProductsStore = signalStore(
   })),
   withHooks({
     onInit: (store) => {
+      store._addApiMethods({
+        add: store._addProduct,
+        delete: store._deleteProduct,
+        update: store._doublePrice,
+      });
+
       patchState(store, setIsLoading());
       store._loadProducts();
 
       effect((cleanup) => {
         const timer = setInterval(() => {
-          patchState(store, setIsBackgroundFetching());
-          store._loadProducts();
+          if (store.requestStatus() === 'idle') {
+            patchState(store, setIsBackgroundFetching());
+            store._loadProducts();
+          }
         }, 5000);
         cleanup(() => {
           clearInterval(timer);
         });
-      });
-
-      effect(() => {
-        const idle = store.requestStatus() === 'idle';
-        const any = store.pendingChanges().length > 0;
-
-        if (any) {
-          if (idle) {
-            const pendingChange = store.pendingChanges()?.pop();
-
-            if (pendingChange) {
-              console.log({ pendingChange });
-              switch (pendingChange.kind) {
-                case 'delete':
-                  store._deleteProduct(pendingChange.product);
-                  return;
-                case 'update':
-                  store._doublePrice(pendingChange.product);
-                  return;
-                case 'add':
-                  store._addProduct({
-                    tempId: pendingChange.tempId,
-                    product: pendingChange.product,
-                  });
-                  return;
-              }
-            }
-          }
-        }
       });
     },
   }),
