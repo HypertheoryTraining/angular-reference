@@ -1,5 +1,11 @@
 import { computed } from '@angular/core';
-import { signalStoreFeature, withComputed, withState } from '@ngrx/signals';
+import {
+  patchState,
+  signalStoreFeature,
+  withComputed,
+  withMethods,
+  withState,
+} from '@ngrx/signals';
 
 type Modes =
   | 'idle'
@@ -22,6 +28,11 @@ export function withLoadingModes() {
           const status = state.requestStatus();
           return typeof status !== 'string' && 'error' in status;
         }),
+      };
+    }),
+    withMethods((state) => {
+      return {
+        clearError: () => patchState(state, setIsIdle()),
       };
     }),
   );

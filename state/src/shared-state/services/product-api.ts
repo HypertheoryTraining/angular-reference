@@ -1,41 +1,24 @@
+import { HttpClient } from '@angular/common/http';
+import { inject } from '@angular/core';
+
 export type ApiProduct = { id: string; name: string; price: number };
 
 export class ProductsApi {
-  getProducts(): Promise<ApiProduct[]> {
-    return fetch('https://some-api/products')
-      .then((res) => res.json())
-      .then((products) => products as ApiProduct[]);
+  #client = inject(HttpClient);
+  getProducts() {
+    return this.#client.get<ApiProduct[]>('https://some-api/products');
   }
+
   deleteProduct(id: string) {
-    return fetch(`https://some-api/products/${id}`, { method: 'DELETE' }).then(
-      (res) => {
-        if (res.status === 204) {
-          return;
-        }
-        throw new Error('Could not delete product');
-      },
+    return this.#client.delete(`https://some-api/products/${id}`);
+  }
+  addProduct(product: Omit<ApiProduct, 'id'>) {
+    return this.#client.post<ApiProduct>('https://some-api/products', product);
+  }
+  updateProduct(product: ApiProduct) {
+    return this.#client.put<ApiProduct>(
+      `https://some-api/products/${product.id}`,
+      product,
     );
-  }
-  addProduct(product: Omit<ApiProduct, 'id'>): Promise<ApiProduct> {
-    return fetch('https://some-api/products', {
-      method: 'POST',
-      body: JSON.stringify(product),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-      .then((res) => res.json())
-      .then((product) => product as ApiProduct);
-  }
-  updateProduct(product: ApiProduct): Promise<ApiProduct> {
-    return fetch(`https://some-api/products/${product.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(product),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-      .then((res) => res.json())
-      .then((product) => product as ApiProduct);
   }
 }

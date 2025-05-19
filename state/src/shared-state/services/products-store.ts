@@ -1,3 +1,6 @@
+import { withDevtools } from '@angular-architects/ngrx-toolkit';
+import { computed, effect, inject } from '@angular/core';
+import { tapResponse } from '@ngrx/operators';
 import {
   patchState,
   signalStore,
@@ -7,25 +10,23 @@ import {
   withState,
 } from '@ngrx/signals';
 import {
-  addEntity,
   removeEntity,
   setEntities,
   setEntity,
   withEntities,
 } from '@ngrx/signals/entities';
-import { mapToNonPending, withOutBox } from './outbox';
-import { withDevtools } from '@angular-architects/ngrx-toolkit';
-import { computed, effect, inject } from '@angular/core';
-import { ProductsApi } from './product-api';
+import { rxMethod } from '@ngrx/signals/rxjs-interop';
+import { mergeMap, pipe, switchMap, tap } from 'rxjs';
 import {
-  setIsIdle,
   setError,
+  setIsBackgroundFetching,
+  setIsIdle,
   setIsLoading,
   setIsMutating,
   withLoadingModes,
-  clearError,
-  setIsBackgroundFetching,
 } from './loading-modes';
+import { mapToNonPending, withOutBox } from './outbox';
+import { ProductsApi } from './product-api';
 type ApiProduct = { id: string; name: string; price: number };
 type PendingChange =
   | {
@@ -64,20 +65,43 @@ export const ProductsStore = signalStore(
         state._addOutboxAddition(proposedChange.tempId, product);
         patchState(state, { pendingChanges: newPendingChanges });
       },
-      _addProduct: async (tempId: string, product: Omit<ApiProduct, 'id'>) => {
-        patchState(state, setIsMutating());
-        await service.addProduct(product).then((res) => {
-          patchState(state, addEntity(res), setIsIdle());
-          state._removeOutboxAddition(tempId);
-        });
-      },
-      _loadProducts: async () => {
-        await service
-          .getProducts()
-          .then((products) =>
-            patchState(state, setEntities(products), setIsIdle()),
-          );
-      },
+      _addProduct: rxMethod<{
+        tempId: string;
+        product: Omit<ApiProduct, 'id'>;
+      }>(
+        pipe(
+          tap(() => {
+            patchState(state, setIsMutating());
+          }),
+          mergeMap(
+            (args: { tempId: string; product: Omit<ApiProduct, 'id'> }) => {
+              return service.addProduct(args.product).pipe(
+                tapResponse(
+                  (product) => {
+                    patchState(state, setEntity(product), setIsIdle());
+                    state._removeOutboxAddition(args.tempId);
+                  },
+                  () => patchState(state, setError('Could not add')),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+      _loadProducts: rxMethod<void>(
+        pipe(
+          switchMap(() =>
+            service.getProducts().pipe(
+              tapResponse(
+                (products) => {
+                  patchState(state, setEntities(products), setIsIdle());
+                },
+                () => patchState(state, setError('Could not load')),
+              ),
+            ),
+          ),
+        ),
+      ),
 
       deleteProduct: (p: ApiProduct) => {
         const proposedChange: PendingChange = {
@@ -88,21 +112,24 @@ export const ProductsStore = signalStore(
         state._addOutboxDeletion(p);
         patchState(state, { pendingChanges: newPendingChanges });
       },
-      _deleteProduct: async (p: ApiProduct) => {
-        patchState(state, setIsMutating());
-
-        try {
-          await service.deleteProduct(p.id);
-
-          patchState(state, removeEntity(p.id), setIsIdle);
-          state._removeOutboxDeletion(p);
-        } catch (e) {
-          console.error('Error deleting product:', e);
-          // Handle the error as needed, e.g., show a notification
-          patchState(state, addEntity(p), setError('Could not delete'));
-          state._removeOutboxDeletion(p);
-        }
-      },
+      _deleteProduct: rxMethod<ApiProduct>(
+        pipe(
+          tap(() => {
+            patchState(state, setIsMutating());
+          }),
+          mergeMap((p: ApiProduct) =>
+            service.deleteProduct(p.id).pipe(
+              tapResponse(
+                () => {
+                  patchState(state, removeEntity(p.id), setIsIdle());
+                  state._removeOutboxDeletion(p);
+                },
+                () => patchState(state, setError('Could not delete')),
+              ),
+            ),
+          ),
+        ),
+      ),
       doublePrice: (p: ApiProduct) => {
         const updatedProduct = { ...p, price: p.price * 2 };
         state._addOutboxUpdate(updatedProduct);
@@ -111,19 +138,27 @@ export const ProductsStore = signalStore(
           product: updatedProduct,
         };
         const newPendingChanges = [...state.pendingChanges(), proposedChange];
+        state._addOutboxUpdate(updatedProduct);
         patchState(state, { pendingChanges: newPendingChanges });
       },
-      _doublePrice: async (p: ApiProduct) => {
-        const updatedProduct = { ...p, price: p.price * 2 };
-        patchState(state, setIsMutating());
-
-        await service.updateProduct(updatedProduct);
-        patchState(state, setEntity(updatedProduct), setIsIdle);
-        state._removeOutboxUpdate(updatedProduct);
-      },
-      clearError: () => {
-        patchState(state, clearError());
-      },
+      _doublePrice: rxMethod<ApiProduct>(
+        pipe(
+          tap(() => {
+            patchState(state, setIsMutating());
+          }),
+          mergeMap((p: ApiProduct) =>
+            service.updateProduct(p).pipe(
+              tapResponse(
+                (product) => {
+                  patchState(state, setEntity(product), setIsIdle());
+                  state._removeOutboxUpdate(product);
+                },
+                () => patchState(state, setError('Could not update')),
+              ),
+            ),
+          ),
+        ),
+      ),
     };
   }),
   withComputed((state) => ({
@@ -157,7 +192,7 @@ export const ProductsStore = signalStore(
         });
       });
 
-      effect(async () => {
+      effect(() => {
         const idle = store.requestStatus() === 'idle';
         const any = store.pendingChanges().length > 0;
 
@@ -169,19 +204,18 @@ export const ProductsStore = signalStore(
               console.log({ pendingChange });
               switch (pendingChange.kind) {
                 case 'delete':
-                  await store._deleteProduct(pendingChange.product);
+                  store._deleteProduct(pendingChange.product);
                   return;
                 case 'update':
-                  await store._doublePrice(pendingChange.product);
+                  store._doublePrice(pendingChange.product);
                   return;
                 case 'add':
-                  await store._addProduct(
-                    pendingChange.tempId,
-                    pendingChange.product,
-                  );
+                  store._addProduct({
+                    tempId: pendingChange.tempId,
+                    product: pendingChange.product,
+                  });
                   return;
               }
-              // You can call a method to add the product here
             }
           }
         }
