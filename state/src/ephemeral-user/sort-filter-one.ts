@@ -21,7 +21,7 @@ type ApiProducts = [{ id: number; name: string; price: number }];
       @if (products.isLoading()) {
         <p>Loading...</p>
       } @else {
-        <table class="table table-auto">
+        <table class="table table-auto table-zebra">
           <thead>
             <td>Id</td>
             <td>
@@ -83,7 +83,7 @@ export class SortFilterOneComponent {
   sortby = signal<'name' | 'price'>('name');
   orderBy = signal<'asc' | 'desc'>('asc');
   products = resource<ApiProducts, unknown>({
-    loader: () => fetch('/api/products').then((res) => res.json()),
+    loader: () => fetch('https://some-api/products').then((res) => res.json()),
   });
 
   setSortBy(sortBy: 'name' | 'price') {

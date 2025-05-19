@@ -24,7 +24,7 @@ type ApiProducts = [{ id: number; name: string; price: number }];
     @if (products.isLoading()) {
       <p>Loading...</p>
     } @else {
-      <table class="table table-auto">
+      <table class="table table-auto table-zebra">
         <thead>
           <td>Id</td>
           <td>
@@ -85,7 +85,7 @@ export class SortFilterTwoComponent {
   store = inject(SortFilterStore);
 
   products = resource<ApiProducts, unknown>({
-    loader: () => fetch('/api/products').then((res) => res.json()),
+    loader: () => fetch('https://some-api/products').then((res) => res.json()),
   });
 
   productsSorted = computed(() => {
