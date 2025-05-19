@@ -7,9 +7,8 @@ import {
   withMethods,
   withState,
 } from '@ngrx/signals';
-import { Observable } from 'rxjs';
-import { setIsMutating, withLoadingModes } from './loading-modes';
 import { RxMethod } from '@ngrx/signals/rxjs-interop';
+import { withLoadingModes } from './loading-modes';
 type ApiOps<T> = {
   add: RxMethod<{ tempId: string; item: Omit<T, 'id'> }> | undefined;
   delete: RxMethod<T> | undefined;
