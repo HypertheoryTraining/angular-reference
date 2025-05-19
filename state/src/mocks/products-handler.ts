@@ -15,6 +15,7 @@ let PRODUCTS: ApiProduct[] = [
 // eslint-disable-next-line prefer-const
 let delayAmount = 2500; // 2.5 seconds
 
+let getRequestCount = 0;
 // MSW uses a random delay if no argument is passed to delay, or a number of MS if it is;
 const settableDelay = () => {
   if (delayAmount !== 0) {
@@ -25,6 +26,14 @@ const settableDelay = () => {
 };
 export const ProductHandler = [
   http.get('https://some-api/products', async () => {
+    getRequestCount++;
+    if (getRequestCount % 3 === 0) {
+      PRODUCTS.push({
+        id: (getRequestCount + 1000).toString(),
+        name: 'F Product ' + getRequestCount,
+        price: 32.23,
+      });
+    }
     await settableDelay();
     return HttpResponse.json(PRODUCTS);
   }),
